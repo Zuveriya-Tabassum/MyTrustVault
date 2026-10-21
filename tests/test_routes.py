@@ -3,7 +3,7 @@ import pathlib, re
 from fastapi.routing import APIRoute
 from app import main
 
-PUBLIC = {("POST", "/auth/login"), ("GET", "/healthz")}
+PUBLIC = {("POST", "/auth/login"), ("GET", "/healthz"), ("GET", "/")}
 
 def _deps(dep):
     for d in dep.dependencies:

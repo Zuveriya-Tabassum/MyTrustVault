@@ -28,5 +28,7 @@
 | 24 | Owner can probe which emails exist (grant by email) | Owners are internal staff | — | **accepted** |
 | 25 | Client IP wrong behind proxy | `request.client.host` only; X-Forwarded-For never trusted (spoofable) | — | **accepted**: logs proxy IP on some hosts |
 | 26 | Backups/storage dir contain plaintext files | — | — | **open**: no at-rest encryption |
-| 27 | AI suggestion widening access | Feature not built | — | **not built** |
+| 27 | Suggestion widens access / injection via file content | Suggestions use metadata only (never file bytes), are advice-only routes, owner must confirm via a separate grant call; suggestion, rejection and `from_suggestion` all audited | test_suggestions_are_advice_only_and_never_create_a_grant, test_suggestion_and_decision_are_both_audited, test_suggestions_only_use_metadata_from_own_documents | closed |
+| 29 | Stored XSS in UI via names/emails | UI uses textContent only; CSP `script-src 'self'`, no inline script | test_ui_is_served_with_strict_csp_and_no_inline_script | closed |
+| 30 | Static route exposes DB/storage | Static dir contains only UI files; traversal returns 404 | test_static_mount_cannot_reach_storage_or_db | closed |
 | 28 | Postgres role/trigger setup | sql/postgres_hardening.sql | — | **open**: not yet run against live Postgres |

@@ -15,7 +15,9 @@ def calls(doc):  # every route that takes a document id: (method, url, kwargs, n
             ("DELETE", f"/documents/{doc}", {}, "delete"),
             ("GET", f"/documents/{doc}/grants", {}, "share"),
             ("PUT", f"/documents/{doc}/grants", {"json": {"email": "eve@t.test", "level": "edit"}}, "share"),
-            ("DELETE", f"/documents/{doc}/grants/{uid('vic@t.test')}", {}, "share")]
+            ("DELETE", f"/documents/{doc}/grants/{uid('vic@t.test')}", {}, "share"),
+            ("GET", f"/documents/{doc}/suggestions", {}, "share"),
+            ("POST", f"/documents/{doc}/suggestions/reject", {"json": {"email": "eve@t.test"}}, "share")]
 
 @pytest.mark.parametrize("actor", ["vic", "bob", "admin"])  # never granted (admin included!)
 def test_never_granted_gets_nothing(who, actor):

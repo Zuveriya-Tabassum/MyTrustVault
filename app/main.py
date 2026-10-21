@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from typing import Literal
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,7 +12,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import audit, config
-from .authz import load_document, search_documents, admin_list_documents, client_ip, doc_meta
+from .authz import load_document, search_documents, admin_list_documents, client_ip, doc_meta, peer_grantees
 from .db import (SessionLocal, init_db, User, SessionRow, Document, Grant, Audit, now)
 
 app = FastAPI(title="TrustVault", docs_url="/docs" if config.ENABLE_DOCS else None,
@@ -34,7 +35,9 @@ async def headers_and_limits(request: Request, call_next):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["Referrer-Policy"] = "no-referrer"
-    resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    resp.headers["Content-Security-Policy"] = ("default-src 'none'; script-src 'self'; style-src 'self'; "
+                                               "connect-src 'self'; img-src 'self' data:; base-uri 'none'; "
+                                               "form-action 'self'; frame-ancestors 'none'")
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -128,8 +131,9 @@ def logout(request: Request, response: Response, user: User = Depends(current_us
     return {"ok": True}
 
 @app.get("/me")
-def me(user: User = Depends(current_user)):
-    return {"id": user.id, "email": user.email, "role": user.role}
+def me(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    s = db.scalar(select(SessionRow).where(SessionRow.token_hash == _sha(request.cookies["tv_session"])))
+    return {"id": user.id, "email": user.email, "role": user.role, "csrf": s.csrf}
 
 @app.get("/healthz")
 def healthz():
@@ -246,6 +250,7 @@ class GrantIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(max_length=254)
     level: Literal["read", "edit"]
+    from_suggestion: bool = False  # recorded in the audit so we can tell human vs suggested decisions
 
 @app.get("/documents/{doc_id}/grants")
 def list_grants(doc_id: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -272,7 +277,7 @@ def put_grant(doc_id: str, body: GrantIn, request: Request, user: User = Depends
     else:
         db.add(Grant(doc_id=doc.id, user_id=target.id, level=body.level, granted_by=user.id)); action = "grant"
     audit.log(db, actor_id=user.id, action=action, outcome="ok", target=doc.id, ip=client_ip(request),
-              detail={"grantee": target.id, "level": body.level})
+              detail={"grantee": target.id, "level": body.level, "from_suggestion": body.from_suggestion})
     try:
         db.commit()
     except IntegrityError:
@@ -359,3 +364,41 @@ def admin_flags(admin: User = Depends(require_role("admin")), db: Session = Depe
         if n:
             flags.append({"type": "access_attempt_after_revoke", "actor_id": g.user_id, "doc_id": g.doc_id, "count": n})
     return flags
+
+
+# ---------- suggestions: advice only. These routes can never create a grant ----------
+@app.get("/documents/{doc_id}/suggestions")
+def suggestions(doc_id: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    doc = load_document(db, user, doc_id, "share", request)
+    already = {g.user_id for g in db.scalars(select(Grant).where(Grant.doc_id == doc.id, Grant.revoked_at.is_(None)))}
+    out = [x for x in peer_grantees(db, user, doc) if x["user_id"] not in already]
+    audit.log(db, actor_id=user.id, action="ai_suggest", outcome="ok", target=doc.id, ip=client_ip(request),
+              detail={"suggested": [x["user_id"] for x in out]})
+    db.commit()
+    return [{"email": x["email"], "reason": x["reason"]} for x in out]
+
+class RejectIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(max_length=254)
+
+@app.post("/documents/{doc_id}/suggestions/reject")
+def reject_suggestion(doc_id: str, body: RejectIn, request: Request, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    doc = load_document(db, user, doc_id, "share", request)
+    audit.log(db, actor_id=user.id, action="ai_reject", outcome="ok", target=doc.id, ip=client_ip(request),
+              detail={"email": body.email.strip().lower()[:80]})
+    db.commit()
+    return {"ok": True}
+
+@app.get("/admin/users")
+def admin_users(admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    return [{"id": u.id, "email": u.email, "role": u.role, "active": u.active}
+            for u in db.scalars(select(User).order_by(User.id))]
+
+# ---------- web UI (static files only; no document is ever served from here) ----------
+_STATIC = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(os.path.join(_STATIC, "index.html"))

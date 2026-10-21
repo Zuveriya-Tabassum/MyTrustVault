@@ -85,3 +85,17 @@ def admin_list_documents(db: Session, limit=200):
 def doc_meta(d: Document, owner_email: str) -> dict:
     return {"id": d.id, "name": d.name, "category": d.category, "owner": owner_email,
             "size": d.size, "sha256": d.sha256, "created_at": d.created_at.isoformat()}
+
+
+def peer_grantees(db: Session, owner: User, doc: Document, limit=5):
+    """Suggestion basis = METADATA ONLY: who this owner previously shared same-category docs with.
+    File contents are never read. Output is advice; nothing here writes a grant."""
+    from sqlalchemy import func
+    rows = db.execute(
+        select(Grant.user_id, User.email, func.count(Grant.id).label("n"))
+        .join(Document, Document.id == Grant.doc_id).join(User, User.id == Grant.user_id)
+        .where(Document.owner_id == owner.id, Document.category == doc.category, Document.id != doc.id,
+               User.active.is_(True), Grant.user_id != owner.id)
+        .group_by(Grant.user_id, User.email).order_by(func.count(Grant.id).desc()).limit(limit)).all()
+    return [{"user_id": uid, "email": e,
+             "reason": f"You shared {n} other '{doc.category}' document(s) with this person"} for uid, e, n in rows]
