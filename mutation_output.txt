@@ -1,0 +1,4 @@
+KILLED   - app/authz.py :: if not decision.allowed:  # AUTHZ-CHECK
+KILLED   - app/authz.py :: Document.deleted_at.is_(None), or_(Document.owner_id == user
+KILLED   - app/authz.py :: Grant.revoked_at.is_(None)))     if g is None:
+KILLED   - app/main.py :: if user is None or not user.active:  # re-checked on EVERY r
