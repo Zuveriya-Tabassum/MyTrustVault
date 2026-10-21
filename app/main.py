@@ -11,8 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from . import audit, config
-from .authz import load_document, search_documents, admin_list_documents, client_ip, doc_meta, peer_grantees
+from datetime import datetime
+from . import audit, config, ml
+from .authz import load_document, search_documents, admin_list_documents, client_ip, doc_meta, peer_grantees, count_documents
 from .db import (SessionLocal, init_db, User, SessionRow, Document, Grant, Audit, now)
 
 app = FastAPI(title="TrustVault", docs_url="/docs" if config.ENABLE_DOCS else None,
@@ -363,7 +364,29 @@ def admin_flags(admin: User = Depends(require_role("admin")), db: Session = Depe
         n = sum(1 for a in denied if a.actor_id == g.user_id and a.target == g.doc_id and a.ts >= g.revoked_at.isoformat())
         if n:
             flags.append({"type": "access_attempt_after_revoke", "actor_id": g.user_id, "doc_id": g.doc_id, "count": n})
+    # statistical detectors (advisory: they flag, they never block)
+    week = (now() - timedelta(days=8)).isoformat()
+    ev = [(a.actor_id, datetime.fromisoformat(a.ts)) for a in
+          db.scalars(select(Audit).where(Audit.action == "download", Audit.outcome == "ok", Audit.ts >= week)) if a.actor_id]
+    flags += ml.hourly_bursts(ev, now()) + ml.off_hours(ev, now())
     return flags
+
+@app.get("/admin/stats")
+def admin_stats(admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    start = now() - timedelta(days=13)
+    days = {(start + timedelta(days=i)).date().isoformat(): {"d": (start + timedelta(days=i)).date().isoformat(), "ok": 0, "denied": 0}
+            for i in range(14)}
+    by_action: dict = defaultdict(int)
+    for a in db.scalars(select(Audit).where(Audit.ts >= start.date().isoformat())):
+        if a.ts[:10] in days and a.outcome in ("ok", "denied"):
+            days[a.ts[:10]][a.outcome] += 1
+        by_action[a.action] += 1
+    return {"days": list(days.values()), "by_action": dict(by_action),
+            "totals": {"users": db.scalar(select(func.count(User.id))), "documents": count_documents(db),
+                       "grants": db.scalar(select(func.count(Grant.id)).where(Grant.revoked_at.is_(None))),
+                       "audit": db.scalar(select(func.count(Audit.id))),
+                       "denied": db.scalar(select(func.count(Audit.id)).where(Audit.outcome == "denied"))}}
 
 
 # ---------- suggestions: advice only. These routes can never create a grant ----------
@@ -375,7 +398,7 @@ def suggestions(doc_id: str, request: Request, user: User = Depends(current_user
     audit.log(db, actor_id=user.id, action="ai_suggest", outcome="ok", target=doc.id, ip=client_ip(request),
               detail={"suggested": [x["user_id"] for x in out]})
     db.commit()
-    return [{"email": x["email"], "reason": x["reason"]} for x in out]
+    return [{"email": x["email"], "reason": x["reason"], "score": x["score"], "source": x["source"]} for x in out]
 
 class RejectIn(BaseModel):
     model_config = ConfigDict(extra="forbid")

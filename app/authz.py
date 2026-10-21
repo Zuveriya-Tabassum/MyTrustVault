@@ -88,14 +88,18 @@ def doc_meta(d: Document, owner_email: str) -> dict:
 
 
 def peer_grantees(db: Session, owner: User, doc: Document, limit=5):
-    """Suggestion basis = METADATA ONLY: who this owner previously shared same-category docs with.
+    """Suggestion basis = METADATA ONLY (names/categories of this owner's other docs and who they were shared with).
     File contents are never read. Output is advice; nothing here writes a grant."""
-    from sqlalchemy import func
+    from . import ml
     rows = db.execute(
-        select(Grant.user_id, User.email, func.count(Grant.id).label("n"))
-        .join(Document, Document.id == Grant.doc_id).join(User, User.id == Grant.user_id)
-        .where(Document.owner_id == owner.id, Document.category == doc.category, Document.id != doc.id,
-               User.active.is_(True), Grant.user_id != owner.id)
-        .group_by(Grant.user_id, User.email).order_by(func.count(Grant.id).desc()).limit(limit)).all()
-    return [{"user_id": uid, "email": e,
-             "reason": f"You shared {n} other '{doc.category}' document(s) with this person"} for uid, e, n in rows]
+        select(Document.id, Document.name, Document.category, Grant.user_id, User.email)
+        .join(Grant, Grant.doc_id == Document.id).join(User, User.id == Grant.user_id)
+        .where(Document.owner_id == owner.id, Document.deleted_at.is_(None), Document.id != doc.id,
+               User.active.is_(True), Grant.user_id != owner.id)).all()
+    hist = [{"doc_id": r[0], "name": r[1], "category": r[2], "user_id": r[3], "email": r[4]} for r in rows]
+    cands = ml.rank(doc.name, doc.category, hist, limit)
+    return ml.apply_rerank(cands, ml.llm_rerank(doc.name, doc.category, cands))
+
+def count_documents(db: Session) -> int:
+    from sqlalchemy import func
+    return db.scalar(select(func.count(Document.id)).where(Document.deleted_at.is_(None))) or 0

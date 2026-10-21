@@ -32,3 +32,6 @@
 | 29 | Stored XSS in UI via names/emails | UI uses textContent only; CSP `script-src 'self'`, no inline script | test_ui_is_served_with_strict_csp_and_no_inline_script | closed |
 | 30 | Static route exposes DB/storage | Static dir contains only UI files; traversal returns 404 | test_static_mount_cannot_reach_storage_or_db | closed |
 | 28 | Postgres role/trigger setup | sql/postgres_hardening.sql | — | **open**: not yet run against live Postgres |
+| 31 | Prompt injection into the LLM re-ranker (a document name is attacker-influenced: an edit-grantee can rename) | Text marked as data; model output is filtered to the server's candidate set, so it cannot add people; still only advice that the owner confirms | test_llm_output_can_never_add_people_outside_the_candidates | closed (worst case: candidates reordered) |
+| 32 | Anomaly detector false positives/negatives | Advisory flags only; thresholds documented (count>=5 and robust z>3.5) | test_burst_detector_flags_outlier_but_not_normal_use, test_admin_flags_endpoint_reports_burst_end_to_end | **accepted**: a slow exfiltration below threshold is not flagged |
+| 33 | Suggestion leaks another owner's sharing habits | History query restricted to the caller's own documents | test_suggestions_only_use_metadata_from_own_documents | closed |
