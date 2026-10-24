@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import text
 from app import audit
 from app.db import SessionLocal, engine
-from .conftest import uid, Client, PW
+from .conftest import uid, Client, PW, drop_audit_triggers
 
 def share(who, doc, to="vic@t.test", level="read"):
     assert who["alice"].req("PUT", f"/documents/{doc}/grants", json={"email": to, "level": level}).status_code == 200
@@ -121,7 +121,7 @@ def test_audit_is_append_only_at_db_level(who):
 def test_tampering_is_detected_even_if_triggers_are_bypassed(who):
     who["alice"].upload(); who["vic"].req("GET", "/documents")
     with engine.begin() as c:   # simulate an attacker with DB superuser: drop trigger, edit a row
-        c.execute(text("DROP TRIGGER audit_no_update")); c.execute(text("DROP TRIGGER audit_no_delete"))
+        drop_audit_triggers(c)
         c.execute(text("UPDATE audit SET actor_id=42 WHERE id=2"))
     v = who["admin"].req("GET", "/admin/audit/verify").json()
     assert v["ok"] is False and v["first_bad_id"] == 2
@@ -129,7 +129,7 @@ def test_tampering_is_detected_even_if_triggers_are_bypassed(who):
 def test_deleting_a_middle_row_is_detected(who):
     who["alice"].upload(); who["alice"].upload()
     with engine.begin() as c:
-        c.execute(text("DROP TRIGGER audit_no_delete")); c.execute(text("DELETE FROM audit WHERE id=3"))
+        drop_audit_triggers(c); c.execute(text("DELETE FROM audit WHERE id=3"))
     assert who["admin"].req("GET", "/admin/audit/verify").json()["ok"] is False
 
 def test_log_forging_is_neutralised(who):

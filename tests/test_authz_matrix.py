@@ -17,6 +17,7 @@ def calls(doc):  # every route that takes a document id: (method, url, kwargs, n
             ("PUT", f"/documents/{doc}/grants", {"json": {"email": "eve@t.test", "level": "edit"}}, "share"),
             ("DELETE", f"/documents/{doc}/grants/{uid('vic@t.test')}", {}, "share"),
             ("GET", f"/documents/{doc}/suggestions", {}, "share"),
+            ("GET", f"/documents/{doc}/activity", {}, "share"),
             ("POST", f"/documents/{doc}/suggestions/reject", {"json": {"email": "eve@t.test"}}, "share")]
 
 @pytest.mark.parametrize("actor", ["vic", "bob", "admin"])  # never granted (admin included!)
@@ -64,8 +65,17 @@ def test_deleted_doc_unreachable_even_for_owner_and_grants_closed(who):
     assert who["alice"].req("GET", "/documents").json() == []
 
 def test_unknown_and_malformed_ids_look_the_same(who):
-    for bad in ("nope", "0" * 32, "../../etc/passwd", "%00"):
+    for bad in ("nope", "0" * 32, "../../etc/passwd", "ABCDEF" * 6):
         assert who["vic"].req("GET", f"/documents/{bad}").status_code == 404
+    # NUL bytes: rejected cleanly (400), never a 500 (PostgreSQL would crash on them without validation)
+    assert who["vic"].req("GET", "/documents/%00").status_code == 400
+    assert who["vic"].req("GET", "/documents", params={"q": "a%00b"}).status_code in (200, 400)
+
+def test_nul_bytes_in_json_do_not_cause_server_errors(who):
+    from fastapi.testclient import TestClient
+    from app import main
+    r = TestClient(main.app).post("/auth/login", json={"email": "a\u0000b@t.test", "password": "x"})
+    assert r.status_code in (400, 401)
 
 def test_unauthenticated_gets_nothing(who):
     from fastapi.testclient import TestClient

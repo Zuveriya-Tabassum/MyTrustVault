@@ -1,6 +1,8 @@
 import os, tempfile
 _tmp = tempfile.mkdtemp()
-os.environ.update(DATABASE_URL=f"sqlite:///{_tmp}/t.db", STORAGE_DIR=f"{_tmp}/files", COOKIE_SECURE="0")
+# Set TEST_DATABASE_URL=postgresql://... to run the whole suite against PostgreSQL instead of SQLite.
+os.environ.update(DATABASE_URL=os.environ.get("TEST_DATABASE_URL", f"sqlite:///{_tmp}/t.db"),
+                  STORAGE_DIR=f"{_tmp}/files", COOKIE_SECURE="0")
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -43,3 +45,12 @@ def who():
 def uid(email):
     with SessionLocal() as db:
         return db.scalar(select(User).where(User.email == email)).id
+
+
+def drop_audit_triggers(conn):
+    """Simulates an attacker with DB superuser rights removing the append-only triggers."""
+    from sqlalchemy import text
+    if conn.dialect.name == "sqlite":
+        conn.execute(text("DROP TRIGGER audit_no_update")); conn.execute(text("DROP TRIGGER audit_no_delete"))
+    else:
+        conn.execute(text("DROP TRIGGER audit_no_mutation ON audit"))

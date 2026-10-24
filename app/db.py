@@ -84,9 +84,13 @@ PG_TRIGGERS = [
     "CREATE TRIGGER audit_no_truncate BEFORE TRUNCATE ON audit FOR EACH STATEMENT EXECUTE FUNCTION audit_immutable()",
 ]
 
+def _fix(u: str) -> str:
+    return u.replace("postgres://", "postgresql+psycopg://", 1).replace("postgresql://", "postgresql+psycopg://", 1)
+
 def init_db():
-    Base.metadata.create_all(engine)
-    stmts = SQLITE_TRIGGERS if engine.dialect.name == "sqlite" else PG_TRIGGERS
-    with engine.begin() as c:
+    eng = create_engine(_fix(config.MIGRATE_DATABASE_URL)) if config.MIGRATE_DATABASE_URL else engine
+    Base.metadata.create_all(eng)
+    stmts = SQLITE_TRIGGERS if eng.dialect.name == "sqlite" else PG_TRIGGERS
+    with eng.begin() as c:
         for s in stmts:
             c.execute(text(s))
