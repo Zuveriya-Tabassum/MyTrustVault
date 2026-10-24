@@ -8,6 +8,7 @@ document but lack that action) · `404` the document does not exist **or you may
 |---|---|---|
 | `GET /healthz` | anyone | liveness |
 | `GET /` , `GET /static/*` | anyone | UI files only; no documents are ever served here |
+| `GET /public-config` | anyone | public login-page settings only |
 | `POST /auth/login` | anyone | uniform error; rate limited per email and per IP; audited |
 | `POST /auth/logout` | signed-in | deletes the session |
 | `GET /me` | signed-in | identity, role, csrf token |
@@ -24,6 +25,7 @@ document but lack that action) · `404` the document does not exist **or you may
 | `POST /documents/{id}/suggestions/reject` | doc owner only | records the dismissal |
 | `GET /documents/{id}/activity` | doc owner only | who touched this document, including refused attempts |
 | `GET /admin/users` , `POST /admin/users` , `POST /admin/users/{id}/disable` | role **admin** | disable kills sessions and grants at once |
+| `GET /admin/settings` , `PATCH /admin/settings` | role **admin** | manage whether demo sign-in links appear on the login page |
 | `GET /admin/documents` | role **admin** | metadata only; **admins cannot open content without a grant** |
 | `GET /admin/audit` | role **admin** | filters `action, outcome, limit` |
 | `GET /admin/audit/verify` | role **admin** | recomputes the hash chain; returns head hash to anchor off-system |

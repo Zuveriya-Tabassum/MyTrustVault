@@ -82,11 +82,16 @@ function showLogin() {
   };
   btn.addEventListener("click", go); pw.addEventListener("keydown", (e) => e.key === "Enter" && go());
   const fill = (e) => { email.value = e + "@trustvault.test"; pw.value = "ChangeMe-Demo-2026!"; pw.focus(); };
+  const demo = h("div", { class: "demo" }, "Demo: ", ["admin", "owner", "viewer"].map((r) =>
+    h("button", { type: "button", title: "Fill the demo email and password", onclick: () => fill(r) }, r)));
+  demo.hidden = true;
   toasts = h("div", { id: "toasts", "aria-live": "polite" });
   root.replaceChildren(toasts, h("div", { class: "hero" }, h("i", { class: "blob b1" }), h("i", { class: "blob b2" }), h("i", { class: "blob b3" }),
     h("div", { class: "login" }, h("div", { class: "logo" }, icon("shield")), h("h1", {}, "TrustVault"),
       h("p", {}, "The wrong person can never read the file. You can prove who did."), email, h("div", { class: "pwrow" }, pw, eye), btn, err,
-      h("div", { class: "demo" }, "Demo: ", ["admin", "owner", "viewer"].map((r) => h("button", { onclick: () => fill(r) }, r))))));
+      demo)));
+  api("GET", "/public-config").then((cfg) => { demo.hidden = cfg.hide_demo_links; })
+    .catch((e) => toast("Demo sign-in options could not be loaded: " + e.message, true));
 }
 
 // ---------------- shell ----------------
@@ -204,8 +209,8 @@ function sharePanel(d) {
 // ---------------- admin ----------------
 function adminView() {
   const out = h("div", { class: "stack" }, h("div", { class: "stats" }, [0, 1, 2, 3, 4].map(() => h("div", { class: "sk" }))));
-  Promise.all([api("GET", "/admin/stats"), api("GET", "/admin/flags"), api("GET", "/admin/users"), api("GET", "/admin/documents"), api("GET", "/admin/audit?limit=150")])
-    .then(([st, fl, us, dc, au]) => { if (S.tab !== "admin") return; out.replaceChildren(...adminParts(st, fl, us, dc, au)); out.querySelectorAll(".chart").forEach((c) => raf2(() => c.classList.add("go"))); out.querySelectorAll(".donut circle.v").forEach((c) => raf2(() => c.style.setProperty("stroke-dasharray", c.dataset.da))); out.querySelectorAll("[data-n]").forEach((e) => countUp(e, +e.dataset.n)); })
+  Promise.all([api("GET", "/admin/stats"), api("GET", "/admin/flags"), api("GET", "/admin/users"), api("GET", "/admin/documents"), api("GET", "/admin/audit?limit=150"), api("GET", "/admin/settings")])
+    .then(([st, fl, us, dc, au, settings]) => { if (S.tab !== "admin") return; out.replaceChildren(...adminParts(st, fl, us, dc, au, settings)); out.querySelectorAll(".chart").forEach((c) => raf2(() => c.classList.add("go"))); out.querySelectorAll(".donut circle.v").forEach((c) => raf2(() => c.style.setProperty("stroke-dasharray", c.dataset.da))); out.querySelectorAll("[data-n]").forEach((e) => countUp(e, +e.dataset.n)); })
     .catch((e) => toast(e.message, true));
   return out;
 }
@@ -238,7 +243,7 @@ function flagText(f) {
   if (f.type === "download_burst") return ["warn", `User #${f.actor_id} downloaded ${f.count} files in one hour (robust z = ${f.z})`, "Statistical outlier vs the organisation's norm"];
   return ["warn", `User #${f.actor_id} made ${f.count} downloads between 00:00 and 05:00 UTC`, "Off-hours access"];
 }
-function adminParts(st, fl, us, dc, au) {
+function adminParts(st, fl, us, dc, au, settings) {
   const T = st.totals, ok = st.days.reduce((a, d) => a + d.ok, 0), den = st.days.reduce((a, d) => a + d.denied, 0);
   const stat = (label, n, i) => h("div", { class: "stat", vars: { "--i": i } }, h("b", { "data-n": n }, "0"), h("span", {}, label));
   const cards = h("div", { class: "stats" }, stat("Users", T.users, 0), stat("Live documents", T.documents, 1), stat("Active grants", T.grants, 2), stat("Audit events", T.audit, 3), stat("Refused attempts", T.denied, 4));
@@ -256,8 +261,27 @@ function adminParts(st, fl, us, dc, au) {
   const users = h("div", { class: "card" }, h("h2", {}, icon("user"), "Users"), h("div", { class: "glist" }, us.map((u) => h("div", { class: "grow-item" }, h("span", { class: "avatar" }, u.email[0].toUpperCase()), h("div", { class: "grow" }, u.email), h("span", { class: "chip" }, u.role),
     u.active ? (u.email !== S.me.email ? h("button", { class: "btn bad sm", onclick: (e) => confirm("Disable " + u.email + "? Their sessions and grants end now.") && guard(async () => { await api("POST", `/admin/users/${u.id}/disable`); toast("User disabled. Sessions and grants ended."); route(); }, e.currentTarget) }, "Disable") : "") : h("span", { class: "chip bad" }, "disabled")))),
     h("h3", {}, "Create user"), h("div", { class: "row" }, h("div", { class: "grow" }, em), pw, role, h("button", { class: "btn", onclick: (e) => guard(async () => { await api("POST", "/admin/users", { email: em.value, password: pw.value, role: role.value }); toast("User created"); route(); }, e.currentTarget) }, "Create")));
+  const demoToggle = h("input", { type: "checkbox", "aria-label": "Show demo sign-in links on the login page" });
+  demoToggle.checked = !settings.hide_demo_links;
+  demoToggle.addEventListener("change", async () => {
+    demoToggle.disabled = true;
+    try {
+      const updated = await api("PATCH", "/admin/settings", { hide_demo_links: !demoToggle.checked });
+      demoToggle.checked = !updated.hide_demo_links;
+      toast("Login demo links updated");
+    } catch (e) {
+      demoToggle.checked = !demoToggle.checked;
+      toast(e.message, true);
+    } finally { demoToggle.disabled = false; }
+  });
+  const settingsCard = h("section", { class: "card settings-card" },
+    h("h2", {}, icon("lock"), "Login page"),
+    h("label", { class: "setting-control" }, h("span", { class: "grow" },
+      h("b", {}, "Show demo sign-in links"),
+      h("small", { class: "mut" }, "Let visitors autofill the demo account email and password.")),
+    demoToggle));
   const docs = h("div", { class: "card" }, h("h2", {}, icon("folder"), "All documents ", h("span", { class: "chip" }, "metadata only")), h("div", { class: "tw" }, h("table", {}, h("tbody", {}, dc.map((d) => h("tr", {}, h("td", {}, d.name), h("td", {}, d.owner), h("td", {}, d.category), h("td", {}, d.deleted ? h("span", { class: "chip bad" }, "deleted") : "")))))));
-  return [cards, charts, flags, audit, h("div", { class: "two" }, users, docs)];
+  return [cards, charts, flags, audit, h("div", { class: "two" }, users, docs), settingsCard];
 }
 
 (async function boot() {

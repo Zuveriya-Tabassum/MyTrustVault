@@ -3,7 +3,7 @@ import pathlib, re
 from fastapi.routing import APIRoute
 from app import main
 
-PUBLIC = {("POST", "/auth/login"), ("GET", "/healthz"), ("GET", "/")}
+PUBLIC = {("POST", "/auth/login"), ("GET", "/healthz"), ("GET", "/public-config"), ("GET", "/")}
 
 def _deps(dep):
     for d in dep.dependencies:
@@ -29,6 +29,18 @@ def test_document_table_is_only_queried_in_authz_module():
 
 def test_no_debug_docs_exposed_by_default(who=None):
     assert main.app.docs_url is None and main.app.openapi_url is None
+
+def test_admin_controls_demo_login_links(who):
+    assert who["admin"].c.get("/public-config").json() == {"hide_demo_links": False}
+    assert who["admin"].req("GET", "/admin/settings").json() == {"hide_demo_links": False}
+    assert who["admin"].req("PATCH", "/admin/settings", json={"hide_demo_links": True}).json() == {
+        "hide_demo_links": True
+    }
+    assert who["admin"].c.get("/public-config").json() == {"hide_demo_links": True}
+    assert who["admin"].req("GET", "/admin/settings").json() == {"hide_demo_links": True}
+    assert who["alice"].req("PATCH", "/admin/settings", json={"hide_demo_links": False}).status_code == 403
+    assert who["admin"].req("PATCH", "/admin/settings", json={"hide_demo_links": False}).status_code == 200
+    assert who["admin"].c.get("/public-config").json() == {"hide_demo_links": False}
 
 def test_api_md_documents_every_route():
     """If a route is added without being documented (and its audience stated), this fails."""

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from . import audit, config, ml
 from .authz import load_document, search_documents, admin_list_documents, client_ip, doc_meta, peer_grantees, count_documents
-from .db import (SessionLocal, init_db, User, SessionRow, Document, Grant, Audit, now)
+from .db import (SessionLocal, init_db, User, SessionRow, Document, Grant, Audit, AppSetting, now)
 
 app = FastAPI(title="TrustVault", docs_url="/docs" if config.ENABLE_DOCS else None,
               redoc_url=None, openapi_url="/openapi.json" if config.ENABLE_DOCS else None)
@@ -148,6 +148,11 @@ def me(request: Request, user: User = Depends(current_user), db: Session = Depen
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+@app.get("/public-config")
+def public_config(db: Session = Depends(get_db)):
+    setting = db.get(AppSetting, "hide_demo_links")
+    return {"hide_demo_links": setting is not None and setting.value == "true"}
 
 # ---------- upload validation ----------
 ALLOWED = {  # extension -> predicate on first bytes
@@ -314,6 +319,27 @@ def revoke_grant(doc_id: str, user_id: int, request: Request, user: User = Depen
     return {"ok": True}
 
 # ---------- admin ----------
+class AdminSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    hide_demo_links: bool
+
+@app.get("/admin/settings")
+def admin_settings(admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    setting = db.get(AppSetting, "hide_demo_links")
+    return {"hide_demo_links": setting is not None and setting.value == "true"}
+
+@app.patch("/admin/settings")
+def update_admin_settings(body: AdminSettingsIn, admin: User = Depends(require_role("admin")),
+                          db: Session = Depends(get_db)):
+    setting = db.get(AppSetting, "hide_demo_links")
+    if setting is None:
+        setting = AppSetting(key="hide_demo_links", value=str(body.hide_demo_links).lower())
+        db.add(setting)
+    else:
+        setting.value = str(body.hide_demo_links).lower()
+    db.commit()
+    return {"hide_demo_links": body.hide_demo_links}
+
 class UserIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
