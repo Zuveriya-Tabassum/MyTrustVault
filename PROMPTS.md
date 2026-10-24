@@ -34,7 +34,7 @@
 - **Wrong:** I only ran the suite on SQLite. Running it against a real PostgreSQL showed that `GET /documents/%00` made the driver reject the NUL byte and the
   server answered **500** — an unauthenticated-looking probe crashing the very function that is supposed to deny. (A 500 also differs from the 404 an attacker gets for ordinary ids.)
 - **Instead:** the loader now requires `[0-9a-f]{32}` before touching the DB, middleware rejects NUL bytes with 400, a `DataError` handler returns 400, and the whole suite
-  runs on both databases (`TEST_DATABASE_URL`). Commit: `b00208c` (after pushing: https://github.com/<you>/<repo>/commit/b00208c)
+  runs on both databases (`TEST_DATABASE_URL`). Commits: `4491c98` (loader + middleware fix) and `b00208c` (tests on both databases) (after pushing: https://github.com/<you>/<repo>/commit/4491c98)
 
 ## Entry 4 — Date: 2026-10-24 — "The app role cannot modify the audit table" was never run (audit trail)
 - **Asked:** SQL that gives the app a role with INSERT/SELECT only on `audit`.
