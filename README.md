@@ -1,4 +1,15 @@
-# TrustVault (2-day build)
+# TrustVault: secure document sharing with a provable audit trail
+
+**Live URL:** `<paste your Render URL here>`  (free hosts sleep: the first request can take ~30 s)
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | admin@trustvault.test | the `SEED_PASSWORD` you set (local default: `ChangeMe-Demo-2026!`) |
+| Owner | owner@trustvault.test (also owner2@) | same |
+| Viewer | viewer@trustvault.test (also viewer2@) | same |
+
+Docs: [API.md](API.md) · [THREATS.md](THREATS.md) · [PROMPTS.md](PROMPTS.md) · [WRITEUP.md](WRITEUP.md) · [DEPLOY.md](DEPLOY.md) · [INTERVIEW.md](INTERVIEW.md) · schema: [sql/schema_postgres.sql](sql/schema_postgres.sql)
+
 FastAPI + SQLAlchemy, with a dependency-free browser UI served by the same app (no Node, no build step). SQLite locally, PostgreSQL in production.
 
 ## Run locally (needs Python 3.10+)
@@ -7,12 +18,12 @@ FastAPI + SQLAlchemy, with a dependency-free browser UI served by the same app (
 
 Manual: `pip install -r requirements.txt; COOKIE_SECURE=0 python -m app.seed; COOKIE_SECURE=0 uvicorn app.main:app`
 
-    pytest -q                      # 51 tests
+    pytest -q                      # 55 tests (SQLite)
+    TEST_DATABASE_URL=postgresql://... pytest -q   # same suite on PostgreSQL
     python tools/mutation_check.py # removes auth checks; suite must fail (see mutation_output.txt)
 
 Demo logins (password from `SEED_PASSWORD`, default in app/seed.py — **rotate after judging**):
 admin@trustvault.test, owner@trustvault.test, owner2@trustvault.test, viewer@trustvault.test, viewer2@trustvault.test
-Default password: `ChangeMe-Demo-2026!`
 
 Try it: sign in as owner → upload → click the document → grant `viewer@trustvault.test` → sign in as viewer in a private window and download → revoke as owner → viewer's next request is refused → sign in as admin → Audit trail shows each step, including the refusal, and "Verify audit chain".
 
