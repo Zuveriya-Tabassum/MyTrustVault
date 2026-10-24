@@ -82,3 +82,11 @@ h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:8px}h3{fon
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 .legend .lg1{background:var(--pri)}.legend .lg2{background:var(--bad)}
 .donut .a{stroke:var(--pri)}.donut .b{stroke:var(--bad)}
+
+.topbar{position:fixed;top:0;left:0;right:0;height:3px;z-index:99;opacity:0;transition:opacity .2s;background:linear-gradient(90deg,transparent,var(--pri),var(--pri2),transparent);background-size:50% 100%;background-repeat:no-repeat}
+.topbar.on{opacity:1;animation:slide 1s linear infinite}@keyframes slide{from{background-position:-50% 0}to{background-position:150% 0}}
+.pwrow{position:relative}.pwrow input{padding-right:42px}.eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:#cfd6ee;cursor:pointer;padding:6px}
+.tl{list-style:none;margin:0;padding:0 0 0 6px;border-left:2px solid var(--bd);display:grid;gap:14px}
+.tl li{display:flex;gap:10px;align-items:flex-start;position:relative;margin-left:-19px;animation:fadeUp .45s var(--ease) both;animation-delay:calc(var(--i,0)*50ms)}
+.tl li>i{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex:none;font-size:12px;color:#fff;background:var(--ok)}.tl li.bad>i{background:var(--bad);animation:pulse 2s 1}
+.tl li.bad b{color:var(--bad)}

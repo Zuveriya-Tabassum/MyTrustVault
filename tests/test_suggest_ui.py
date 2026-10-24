@@ -97,3 +97,41 @@ def test_stats_admin_only_and_shape(who):
     assert who["vic"].req("GET", "/admin/stats").status_code == 403
     s = who["admin"].req("GET", "/admin/stats").json()
     assert len(s["days"]) == 14 and s["totals"]["documents"] == 1 and s["days"][-1]["ok"] >= 1
+
+
+def test_owner_sees_who_accessed_including_refused_attempts(who):
+    doc = who["alice"].upload().json()["id"]
+    who["eve"].req("GET", f"/documents/{doc}/download")                      # refused
+    who["alice"].req("PUT", f"/documents/{doc}/grants", json={"email": "vic@t.test", "level": "read"})
+    who["vic"].req("GET", f"/documents/{doc}/download")                      # allowed
+    rows = who["alice"].req("GET", f"/documents/{doc}/activity").json()
+    seen = {(r["actor"], r["action"], r["outcome"]) for r in rows}
+    assert ("eve@t.test", "download", "denied") in seen and ("vic@t.test", "download", "ok") in seen
+    assert who["vic"].req("GET", f"/documents/{doc}/activity").status_code == 403   # a grantee cannot read the access log
+
+def test_seed_is_idempotent_and_recreates_wiped_files(who):
+    import os
+    from app import seed, config
+    seed.seed(); seed.seed()                       # twice: no duplicates
+    rows = who["admin"].req("GET", "/admin/documents").json()
+    assert sorted(d["name"] for d in rows) == ["Contract-ACME-2026.txt", "Drawing-notes-rev4.txt", "Salary-letter-A-Sharma.txt"]
+    viewer = Client_("viewer@trustvault.test")
+    assert [d["name"] for d in viewer.req("GET", "/documents").json()] == ["Salary-letter-A-Sharma.txt"]   # only what was granted
+    for f in os.listdir(config.STORAGE_DIR): os.remove(os.path.join(config.STORAGE_DIR, f))               # simulate wiped disk
+    doc = viewer.req("GET", "/documents").json()[0]["id"]
+    r = viewer.req("GET", f"/documents/{doc}/download")
+    assert r.status_code == 404 and r.json()["detail"] == "File unavailable"                              # clean, audited, not a 500
+    seed.seed()
+    assert viewer.req("GET", f"/documents/{doc}/download").status_code == 200
+
+def Client_(email):
+    from .conftest import Client
+    from app import seed
+    import os
+    c = Client.__new__(Client)
+    from fastapi.testclient import TestClient
+    from app import main
+    c.c = TestClient(main.app)
+    r = c.c.post("/auth/login", json={"email": email, "password": os.environ.get("SEED_PASSWORD", "ChangeMe-Demo-2026!")})
+    c.csrf = r.json()["csrf"]
+    return c

@@ -29,3 +29,11 @@ def test_document_table_is_only_queried_in_authz_module():
 
 def test_no_debug_docs_exposed_by_default(who=None):
     assert main.app.docs_url is None and main.app.openapi_url is None
+
+def test_api_md_documents_every_route():
+    """If a route is added without being documented (and its audience stated), this fails."""
+    doc = pathlib.Path("API.md").read_text()
+    for r in main.app.routes:
+        if isinstance(r, APIRoute):
+            norm = re.sub(r"\{[^}]+\}", "{", r.path)
+            assert any(norm == re.sub(r"\{[^}]+\}", "{", p) for p in re.findall(r"`(?:GET |POST |PUT |PATCH |DELETE )?(/[^` ]*)`", doc)), f"{r.path} missing from API.md"

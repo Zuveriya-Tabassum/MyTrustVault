@@ -1,5 +1,6 @@
 """THE ONLY MODULE ALLOWED TO QUERY THE DOCUMENTS TABLE.
 Every decision about who may touch a document is made here, from the database, on every call."""
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from fastapi import HTTPException, Request
@@ -33,12 +34,15 @@ def authorize(db: Session, user: User, doc: Document, action: str) -> Decision:
         return Decision(True, f"grant:{g.level}")
     return Decision(False, f"grant_{g.level}_insufficient")
 
+_ID_RE = re.compile(r"[0-9a-f]{32}")
+
 def client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 def load_document(db: Session, user: User, doc_id: str, action: str, request: Request) -> Document:
     """The single door to a document. Returns it only if authorised, else audits and raises."""
-    doc = db.get(Document, doc_id)
+    # Strict ID format first: malformed ids never reach the database (PostgreSQL rejects NUL bytes with a 500).
+    doc = db.get(Document, doc_id) if _ID_RE.fullmatch(doc_id or "") else None
     if doc is None:
         audit.log(db, actor_id=user.id, action=action, outcome="denied", target=doc_id,
                   reason="not_found", ip=client_ip(request))
@@ -103,3 +107,9 @@ def peer_grantees(db: Session, owner: User, doc: Document, limit=5):
 def count_documents(db: Session) -> int:
     from sqlalchemy import func
     return db.scalar(select(func.count(Document.id)).where(Document.deleted_at.is_(None))) or 0
+
+
+def seed_lookup(db: Session, owner_id: int, name: str):
+    """Used ONLY by app/seed.py to make demo data idempotent. Returns (id, storage_key) or None."""
+    r = db.execute(select(Document.id, Document.storage_key).where(Document.owner_id == owner_id, Document.name == name)).first()
+    return (r[0], r[1]) if r else None

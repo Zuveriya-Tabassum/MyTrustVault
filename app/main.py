@@ -25,10 +25,13 @@ SAFE = {"GET", "HEAD", "OPTIONS"}
 @app.on_event("startup")
 def _startup():
     os.makedirs(config.STORAGE_DIR, exist_ok=True)
-    init_db()
+    if config.RUN_MIGRATIONS:
+        init_db()
 
 @app.middleware("http")
 async def headers_and_limits(request: Request, call_next):
+    if "\x00" in request.url.path or "\x00" in request.url.query or "%00" in request.url.query.lower():
+        return JSONResponse({"detail": "Bad request"}, status_code=400)
     cl = request.headers.get("content-length")
     if cl and cl.isdigit() and int(cl) > config.MAX_BYTES + 1_000_000:
         return JSONResponse({"detail": "Too large"}, status_code=413)
@@ -41,6 +44,12 @@ async def headers_and_limits(request: Request, call_next):
                                                "form-action 'self'; frame-ancestors 'none'")
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+from sqlalchemy.exc import DataError
+
+@app.exception_handler(DataError)
+def _bad_data(request: Request, exc: DataError):
+    return JSONResponse({"detail": "Invalid input"}, status_code=400)   # e.g. NUL bytes in JSON strings on PostgreSQL
 
 def get_db():
     db = SessionLocal()
@@ -211,9 +220,15 @@ def get_document(doc_id: str, request: Request, user: User = Depends(current_use
 @app.get("/documents/{doc_id}/download")
 def download(doc_id: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     doc = load_document(db, user, doc_id, "download", request)
+    fpath = os.path.join(config.STORAGE_DIR, doc.storage_key)
+    if not os.path.isfile(fpath):   # e.g. ephemeral disk wiped on redeploy: say so, and record it
+        audit.log(db, actor_id=user.id, action="download", outcome="error", target=doc.id, reason="file_missing",
+                  ip=client_ip(request))
+        db.commit()
+        raise HTTPException(404, "File unavailable")
     audit.log(db, actor_id=user.id, action="download", outcome="ok", target=doc.id, ip=client_ip(request))
     db.commit()  # logged BEFORE any byte is sent
-    return FileResponse(os.path.join(config.STORAGE_DIR, doc.storage_key), media_type="application/octet-stream",
+    return FileResponse(fpath, media_type="application/octet-stream",
                         filename=doc.name, content_disposition_type="attachment")
 
 class DocPatch(BaseModel):
@@ -399,6 +414,15 @@ def suggestions(doc_id: str, request: Request, user: User = Depends(current_user
               detail={"suggested": [x["user_id"] for x in out]})
     db.commit()
     return [{"email": x["email"], "reason": x["reason"], "score": x["score"], "source": x["source"]} for x in out]
+
+@app.get("/documents/{doc_id}/activity")
+def activity(doc_id: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Owner-only: who touched THIS document and when, including refused attempts (read from the audit chain)."""
+    doc = load_document(db, user, doc_id, "share", request)
+    rows = db.execute(select(Audit, User.email).outerjoin(User, User.id == Audit.actor_id)
+                      .where(Audit.target == doc.id).order_by(Audit.id.desc()).limit(50)).all()
+    return [{"ts": a.ts, "actor": e or "unknown", "action": a.action, "outcome": a.outcome, "reason": a.reason}
+            for a, e in rows]
 
 class RejectIn(BaseModel):
     model_config = ConfigDict(extra="forbid")

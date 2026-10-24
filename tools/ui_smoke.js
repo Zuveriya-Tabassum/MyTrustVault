@@ -1,5 +1,5 @@
-const { JSDOM } = require("/tmp/node_modules/jsdom");
-const BASE = "http://localhost:8766";
+const { JSDOM } = require("jsdom");
+const BASE = process.env.BASE || "http://localhost:8766";   // usage: npm i jsdom; BASE=http://localhost:8000 node tools/ui_smoke.js
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function session(email) {
   const html = await (await fetch(BASE + "/")).text();
@@ -30,7 +30,8 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) process
   s.$$(".dcard")[0].click(); await sleep(1200);
   ok(s.$(".drawer").classList.contains("open"), "drawer opens on card click");
   ok(/Who has access/.test(s.$(".drawer").textContent), "owner sees sharing panel");
-  ok(s.$$(".sug").length >= 1 || s.$$(".grow-item").length >= 1, "grants/suggestions rendered");
+  ok(s.$$(".sug").length >= 1 || s.$$(".grow-item").length >= 1 || /Only you/.test(s.$(".drawer").textContent), "grant list rendered (shared with nobody => \"Only you\")");
+  ok(s.$$(".tl li").length >= 1, "owner sees the access-history timeline (" + s.$$(".tl li").length + " events)");
   const sug = s.$(".sug"); console.log("   suggestion:", sug ? sug.textContent.slice(0, 120) : "(none for this doc)");
   s.w.document.dispatchEvent(new s.w.KeyboardEvent("keydown", { key: "Escape" })); await sleep(100); ok(!s.$(".drawer").classList.contains("open"), "Escape closes drawer");
   s.$$(".btn").find((b) => /Sign out/.test(b.textContent)).click(); await sleep(500); ok(!!s.$(".login"), "sign out returns to login");

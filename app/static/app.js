@@ -7,6 +7,7 @@ const ICONS = {
   upload: "M12 16V4 M7 9l5-5 5 5 M4 20h16", download: "M12 4v12 M7 11l5 5 5-5 M4 20h16", trash: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13",
   x: "M6 6l12 12 M18 6L6 18", check: "M5 13l4 4L19 7", alert: "M12 3l10 18H2z M12 10v5 M12 18v.5", user: "M12 12a4 4 0 100-8 4 4 0 000 8 M4 21c0-4 4-6 8-6s8 2 8 6",
   search: "M11 4a7 7 0 100 14 7 7 0 000-14 M21 21l-5-5", share: "M18 8a3 3 0 100-6 3 3 0 000 6 M6 15a3 3 0 100-6 3 3 0 000 6 M18 22a3 3 0 100-6 3 3 0 000 6 M8.6 13.5l6.8 4 M15.4 6.5l-6.8 4",
+  eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M12 9a3 3 0 100 6 3 3 0 000-6",
   spark: "M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z", logout: "M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9", lock: "M6 11h12v10H6z M8 11V7a4 4 0 018 0v4",
   chart: "M4 20V10 M10 20V4 M16 20v-8 M22 20H2", folder: "M3 6h7l2 2h9v11H3z",
 };
@@ -29,7 +30,12 @@ function h(tag, props, ...kids) {
 const sv = (tag, attrs, ...kids) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v); kids.flat().forEach((c) => e.append(c)); return e; };
 const raf2 = (f) => requestAnimationFrame(() => requestAnimationFrame(f));
 
+let inflight = 0; const bar = h("div", { class: "topbar" }); document.body.append(bar);
 async function api(method, url, body, form) {
+  inflight++; bar.classList.add("on");
+  try { return await api0(method, url, body, form); } finally { if (--inflight === 0) bar.classList.remove("on"); }
+}
+async function api0(method, url, body, form) {
   const o = { method, headers: {}, credentials: "same-origin" };
   if (S.csrf) o.headers["X-CSRF-Token"] = S.csrf;
   if (form) o.body = form; else if (body !== undefined) { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(body); }
@@ -64,6 +70,7 @@ function countUp(el, n) {
 function showLogin() {
   const email = h("input", { type: "email", placeholder: "Email", autocomplete: "username", "aria-label": "Email" });
   const pw = h("input", { type: "password", placeholder: "Password", autocomplete: "current-password", "aria-label": "Password" });
+  const eye = h("button", { class: "eye", type: "button", "aria-label": "Show password", onclick: () => { pw.type = pw.type === "password" ? "text" : "password"; } }, icon("eye"));
   const err = h("p", { class: "err", role: "alert" });
   const btn = h("button", { class: "btn" }, "Sign in");
   const go = async () => {
@@ -78,7 +85,7 @@ function showLogin() {
   toasts = h("div", { id: "toasts", "aria-live": "polite" });
   root.replaceChildren(toasts, h("div", { class: "hero" }, h("i", { class: "blob b1" }), h("i", { class: "blob b2" }), h("i", { class: "blob b3" }),
     h("div", { class: "login" }, h("div", { class: "logo" }, icon("shield")), h("h1", {}, "TrustVault"),
-      h("p", {}, "The wrong person can never read the file. You can prove who did."), email, pw, btn, err,
+      h("p", {}, "The wrong person can never read the file. You can prove who did."), email, h("div", { class: "pwrow" }, pw, eye), btn, err,
       h("div", { class: "demo" }, "Demo: ", ["admin", "owner", "viewer"].map((r) => h("button", { onclick: () => fill(r) }, r))))));
 }
 
@@ -139,13 +146,13 @@ function uploader() {
 // ---------------- drawer ----------------
 function closeDrawer() { if (!drawer) return; drawer.classList.remove("open"); overlay.classList.remove("show"); S.sel = null; document.querySelectorAll(".dcard.sel").forEach((c) => c.classList.remove("sel")); }
 function openDoc(d) {
-  S.sel = d; S.grants = null; S.sugg = null; fillDrawer(); overlay.classList.add("show"); raf2(() => drawer.classList.add("open"));
+  S.sel = d; S.grants = null; S.sugg = null; S.act = null; fillDrawer(); overlay.classList.add("show"); raf2(() => drawer.classList.add("open"));
   if (d.owner === S.me.email) refreshShare();
 }
 function refreshShare() {
   const d = S.sel; guard(async () => {
-    const [g, s] = await Promise.all([api("GET", `/documents/${d.id}/grants`), api("GET", `/documents/${d.id}/suggestions`)]);
-    if (S.sel && S.sel.id === d.id) { S.grants = g; S.sugg = s; fillDrawer(); }
+    const [g, s, a] = await Promise.all([api("GET", `/documents/${d.id}/grants`), api("GET", `/documents/${d.id}/suggestions`), api("GET", `/documents/${d.id}/activity`)]);
+    if (S.sel && S.sel.id === d.id) { S.grants = g; S.sugg = s; S.act = a; fillDrawer(); }
   });
 }
 function fillDrawer() {
@@ -158,9 +165,21 @@ function fillDrawer() {
       mine ? h("button", { class: "btn bad", onclick: (e) => confirm("Delete this document? Everyone's access ends.") && guard(async () => { await api("DELETE", `/documents/${d.id}`); closeDrawer(); toast("Deleted. All access closed."); loadDocs(); }, e.currentTarget) }, icon("trash"), "Delete") : ""),
     h("h3", {}, "Rename (needs edit access)"),
     h("div", { class: "row" }, h("div", { class: "grow" }, name), cat, h("button", { class: "btn sec", onclick: (e) => guard(async () => { S.sel = await api("PATCH", `/documents/${d.id}`, { name: name.value, category: cat.value }); toast("Saved and logged"); fillDrawer(); loadDocs(); }, e.currentTarget) }, "Save"))];
-  nodes.push(mine ? sharePanel(d) : h("p", { class: "mut" }, icon("lock"), " Only the owner can see or change who has access."));
-  drawer.replaceChildren(...nodes);
+  nodes.push(mine ? [sharePanel(d), timeline()] : h("p", { class: "mut" }, icon("lock"), " Only the owner can see or change who has access."));
+  drawer.replaceChildren(...nodes.flat());
   drawer.querySelectorAll(".meter i").forEach((m) => raf2(() => m.style.setProperty("width", m.dataset.w + "%")));
+}
+const AVERB = { download: "downloaded", upload: "uploaded", update: "edited", delete: "deleted", grant: "was given access", grant_change: "access level changed", revoke: "access revoked", ai_suggest: "asked for suggestions", ai_reject: "dismissed a suggestion", read: "opened" };
+function ago(ts) { const s = Math.max(1, Math.round((Date.now() - new Date(ts + "Z")) / 1000)); return s < 60 ? s + "s ago" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " d ago"; }
+function timeline() {
+  const box = h("div", {}, h("h3", {}, "Access history · who touched this, and when"));
+  if (S.act === null) return box.append(h("div", { class: "sk" })) || box;
+  if (!S.act.length) return box.append(h("div", { class: "mut" }, "No activity yet.")) || box;
+  box.append(h("ol", { class: "tl" }, S.act.map((a, i) => h("li", { class: a.outcome === "denied" ? "bad" : "ok", vars: { "--i": Math.min(i, 10) } },
+    h("i", {}, icon(a.outcome === "denied" ? "x" : "check")),
+    h("div", {}, h("div", {}, h("b", {}, a.actor), " ", a.outcome === "denied" ? "was refused: " + (a.action) : (AVERB[a.action] || a.action)),
+      h("small", { class: "mut", title: a.ts }, ago(a.ts) + (a.reason ? " · " + a.reason : "")))))));
+  return box;
 }
 function sharePanel(d) {
   const email = h("input", { type: "email", placeholder: "person@company.com", "aria-label": "Email to share with" });
