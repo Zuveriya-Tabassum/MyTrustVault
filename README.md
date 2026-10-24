@@ -1,6 +1,6 @@
 # TrustVault: secure document sharing with a provable audit trail
 
-**Live URL:** `<paste your Render URL here>`  (free hosts sleep: the first request can take ~30 s)
+**Live URL:** `[Live Demo Link`](https://trustvault-dcvh.onrender.com)  (free hosts sleep: the first request can take ~30 s)
 
 | Role | Email | Password |
 |---|---|---|
